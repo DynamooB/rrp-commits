@@ -4,7 +4,8 @@ This repository is a **timestamped witness log**. It exists to prove that a
 resolution-risk score for a prediction market was produced *before* that market
 resolved — and that the score was never edited afterwards.
 
-It contains exactly two things: this README and [`commits.log`](commits.log).
+It contains this README, [`commits.log`](commits.log), and — for entries before
+the chain-witness upgrade — [`batch_anchor.json`](batch_anchor.json).
 No code, no scores, and no pre-resolution reports are ever published here.
 
 ## What is a resolution-risk score?
@@ -27,7 +28,7 @@ A hash is the smallest such thing. It reveals nothing about the score (so the
 call isn't leaked before resolution) while making the score impossible to
 change (so the call can't be revised after).
 
-## The scheme
+## The scheme (chain-witnessed, all entries from the batch anchor block onward)
 
 **At scoring time, before the market resolves:**
 
@@ -35,40 +36,111 @@ change (so the call can't be revised after).
    run, the composite, and the engine version that produced it.
 2. That report is canonicalised as sorted-key, UTF-8 JSON with compact
    separators, then hashed with SHA-256.
-3. One line is appended to `commits.log` and pushed here:
+3. A **zero-value transaction is sent on Base mainnet** with the digest in
+   calldata (prefix `rrp:` followed by the 32 raw digest bytes). The on-chain
+   timestamp is the primary witness — it is set by the network and cannot be
+   forged by the author.
+4. One line is appended to `commits.log` and pushed here (5-column format):
 
    ```
-   {market_id},{sha256_of_report},{utc_timestamp}
+   {market_id},{sha256_of_report},{utc_timestamp},{base_tx_hash},{block_number}
    ```
 
-   **GitHub's commit timestamp is the witness.** The author timestamp in a git
-   commit can be forged; the moment GitHub received the push cannot be, and it
-   is visible in this repository's commit history.
+   The GitHub commit timestamp provides a second, human-readable timestamp.
 
 **After the market resolves:**
 
-4. The full report JSON is published. Anyone can canonicalise it, hash it, and
-   check the result against the line that was already public — and check, via
-   this repo's history, that the line predates the resolution.
+5. The full report JSON is published. Anyone can canonicalise it, sha256 it,
+   and confirm the digest matches the calldata of the referenced transaction.
 
-## Verifying a claim yourself
+## Log line formats
 
-Given a published report file:
-
-```bash
-python -c "import json,hashlib,sys; p=json.load(open(sys.argv[1])); print(hashlib.sha256(json.dumps(p,sort_keys=True,ensure_ascii=False,separators=(',',':')).encode()).hexdigest())" report.json
+**Entries from block N onward (per-commit chain anchor, 5 columns):**
+```
+{market_id},{sha256},{utc_ts},{0x_tx_hash},{block_number}
 ```
 
-Then:
+**Entries before block N (3 columns, batch-anchored retroactively):**
+```
+{market_id},{sha256},{utc_ts}
+```
 
-- Confirm that hash appears in `commits.log`.
-- Run `git log -S"<the hash>" --format="%H %cI"` in a clone of this repo to find
-  the commit that introduced it, and check its **committer** date.
-- Confirm that date precedes the market's resolution.
+These 3-column entries are covered by `batch_anchor.json` — a single Base
+transaction carrying the Merkle root of all of them, with individual Merkle
+proofs included in the JSON file.
 
-If the hash isn't in the log, or its commit postdates resolution, the claim is
-worthless. That is the intended failure mode: the scheme is designed so you do
-not have to take anyone's word for anything.
+## Verifying a per-commit entry (5-column)
+
+Given a published report file and a log line:
+
+```python
+import json, hashlib
+
+# 1. Recompute the digest
+report = json.load(open("report.json"))
+canonical = json.dumps(report, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+digest = hashlib.sha256(canonical.encode()).hexdigest()
+print("digest:", digest)
+
+# 2. Compare against the log line's second field — they must match.
+```
+
+```python
+# 3. Fetch the Base transaction and verify calldata
+from web3 import Web3
+w3 = Web3(Web3.HTTPProvider("https://mainnet.base.org"))
+tx = w3.eth.get_transaction("0x<tx_hash_from_log_line>")
+expected = b"rrp:" + bytes.fromhex(digest)
+assert bytes(tx["input"]) == expected, "calldata mismatch"
+print("chain anchor verified at block", tx["blockNumber"])
+```
+
+Or use the CLI: `rrp verify <market_id>` (requires BASE_RPC_URL in `.env`).
+
+## Verifying a batch-anchored entry (3-column)
+
+```python
+import json, hashlib
+
+batch = json.load(open("batch_anchor.json"))
+
+# 1. Find the entry by its digest (field 2 of the log line)
+entry = next(e for e in batch["entries"] if "<digest>" in e["line"])
+
+# 2. Verify the Merkle proof
+def h(data): return hashlib.sha256(data).digest()
+node = h(entry["line"].encode())
+for step in entry["proof"]:
+    sib = bytes.fromhex(step["sibling"])
+    node = h(node + sib) if step["direction"] == "right" else h(sib + node)
+assert node.hex() == batch["root"], "Merkle proof invalid"
+
+# 3. Verify the batch tx calldata on Base
+from web3 import Web3
+w3 = Web3(Web3.HTTPProvider("https://mainnet.base.org"))
+tx = w3.eth.get_transaction(batch["tx_hash"])
+expected = b"rrp-batch:" + bytes.fromhex(batch["root"])
+assert bytes(tx["input"]) == expected, "batch calldata mismatch"
+print("batch anchor verified at block", batch["block_number"])
+```
+
+Or use the CLI: `rrp verify <market_id>`.
+
+## Entries before the batch anchor
+
+The first 22 entries (all dated 2026-07-27) were committed when the scheme was
+git-witnessed only. They are retroactively covered by the batch anchor in
+`batch_anchor.json`. For those entries:
+
+- The **original commit date** is the git-witnessed timestamp (GitHub commit
+  history, predating the batch anchor block).
+- The **chain anchor date** is the block timestamp of the batch transaction.
+- The Merkle proof in `batch_anchor.json` proves each entry was included in
+  the Merkle root that was anchored on-chain.
+
+Anyone may independently verify that: (a) those git commits predate the
+resolution of any of those markets, and (b) the batch anchor tx calldata
+matches the Merkle root of the 3-column log lines.
 
 ## Disclosure policy: no cherry-picking
 
@@ -106,14 +178,7 @@ resolution alongside the binding one, marked as superseded and carrying the
 reason it was re-scored. The report format records this directly: every report
 carries a `supersedes` field naming the hash it replaces and a `rescore_reason`
 field explaining why, so the chain is machine-checkable rather than a claim in
-prose. A superseded report with a missing or evasive reason should be read as
-what it is — an attempt to quietly bury an earlier call.
-
-The obvious abuse this invites is re-scoring a market repeatedly until one
-version looks good, then leaning on that one. The accounting rule above already
-forecloses it: every hash in the chain is revealed, so a market with six
-commitments and five superseding reasons is visibly a market that was scored
-six times, and a reader can judge it accordingly.
+prose.
 
 ## What this log does *not* prove
 
@@ -122,6 +187,5 @@ six times, and a reader can judge it accordingly.
   binds the market snapshot by hash, but the snapshot itself came from the
   Polymarket Gamma API at fetch time.
 - It cannot *enforce* the disclosure policy above — only make violations
-  visible. Nothing in cryptography compels a reveal; what the log guarantees is
-  that an unrevealed commitment stays permanently on the record, countable by
-  anyone. Enforcement is the reader's, by applying the accounting rule.
+  visible. An unrevealed commitment stays permanently on the record, countable
+  by anyone.
