@@ -89,6 +89,32 @@ Not as pending, not as withdrawn — a miss. A reader auditing this log is
 entitled to treat silence as failure, and the ratio of revealed reports to
 resolved commitments is the honest measure of the record.
 
+### Re-scoring and which commitment binds
+
+A market can legitimately be scored more than once — the engine improves, a
+market's rules get clarified, a run turns out to be unusually noisy. Each
+re-score appends a new hash, so a single market may hold several lines here.
+
+**The last hash committed before the market resolves is the binding call for
+track-record purposes.** That is the one the record is scored against, win or
+lose. Choosing it is not a matter of preference: it is fixed by the resolution
+timestamp, which nobody controls, so the binding call is always identifiable
+after the fact and can never be selected retroactively to flatter the record.
+
+Earlier hashes for the same market are **not** discarded. Each is revealed at
+resolution alongside the binding one, marked as superseded and carrying the
+reason it was re-scored. The report format records this directly: every report
+carries a `supersedes` field naming the hash it replaces and a `rescore_reason`
+field explaining why, so the chain is machine-checkable rather than a claim in
+prose. A superseded report with a missing or evasive reason should be read as
+what it is — an attempt to quietly bury an earlier call.
+
+The obvious abuse this invites is re-scoring a market repeatedly until one
+version looks good, then leaning on that one. The accounting rule above already
+forecloses it: every hash in the chain is revealed, so a market with six
+commitments and five superseding reasons is visibly a market that was scored
+six times, and a reader can judge it accordingly.
+
 ## What this log does *not* prove
 
 - It does not prove a score was *good* — only that it was fixed in advance.
