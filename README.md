@@ -70,13 +70,32 @@ If the hash isn't in the log, or its commit postdates resolution, the claim is
 worthless. That is the intended failure mode: the scheme is designed so you do
 not have to take anyone's word for anything.
 
+## Disclosure policy: no cherry-picking
+
+**Every hash committed to this log gets its full report published when the
+market resolves — hit or miss.** A score that turns out to be embarrassing is
+published on the same terms as one that looks prescient. Committing a hash is a
+standing obligation to reveal, not an option to reveal if the result flatters.
+
+This is the policy that makes the rest of the scheme mean anything. Hashes are
+cheap: anyone can commit a hundred calls, reveal the six that landed, and let
+the rest rot unrevealed. That produces a track record with an unbounded and
+invisible denominator, which is worse than no track record at all, because it
+looks rigorous.
+
+So the accounting rule is deliberately unforgiving: **any hash whose market has
+resolved without a corresponding published report should be counted as a miss.**
+Not as pending, not as withdrawn — a miss. A reader auditing this log is
+entitled to treat silence as failure, and the ratio of revealed reports to
+resolved commitments is the honest measure of the record.
+
 ## What this log does *not* prove
 
 - It does not prove a score was *good* — only that it was fixed in advance.
 - It does not prove the report was scored on an honest snapshot. The report
   binds the market snapshot by hash, but the snapshot itself came from the
   Polymarket Gamma API at fetch time.
-- It does not prevent selective disclosure: someone could commit many scores
-  and reveal only the flattering ones. Judge a track record by the *ratio* of
-  published reports to committed lines — every line here should eventually get
-  a report.
+- It cannot *enforce* the disclosure policy above — only make violations
+  visible. Nothing in cryptography compels a reveal; what the log guarantees is
+  that an unrevealed commitment stays permanently on the record, countable by
+  anyone. Enforcement is the reader's, by applying the accounting rule.
