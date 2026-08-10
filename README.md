@@ -161,6 +161,12 @@ Not as pending, not as withdrawn — a miss. A reader auditing this log is
 entitled to treat silence as failure, and the ratio of revealed reports to
 resolved commitments is the honest measure of the record.
 
+**Post-resolution commits** are disclosed exceptions: markets scored or
+committed after resolution (e.g. a mistaken target).  Their reveal lines are
+prefixed `POST-RESOLUTION-COMMIT:` and their report JSONs carry `"excluded":
+true` with a disclosure note.  They are published for completeness and count
+for nothing — neither as hits nor misses.
+
 ### Re-scoring and which commitment binds
 
 A market can legitimately be scored more than once — the engine improves, a
